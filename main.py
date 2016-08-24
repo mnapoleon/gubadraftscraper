@@ -1,6 +1,6 @@
 import re, requests, bs4, slackclient, time
 
-SLACK_TOKEN = 'xoxb-72614428085-StN0TBVsluVNGBDzUnFeuB1s'
+SLACK_TOKEN = ''
 
 def getTeamIcon(teamName):
     teams = {

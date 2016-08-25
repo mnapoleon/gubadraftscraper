@@ -1,0 +1,1505 @@
+<html>
+
+<head>
+    <script type="text/javascript">
+    //<![CDATA[
+    var ajax = [];
+    var cache;
+
+    function pjx(args, fname, method) {
+        this.target = args[1];
+        this.args = args[0];
+        method = (method) ? method : 'GET';
+        if (method == 'post') {
+            method = 'POST';
+        }
+        this.method = method;
+        this.r = ghr();
+        this.url = this.getURL(fname);
+    }
+
+    function formDump() {
+        var all = [];
+        var fL = document.forms.length;
+        for (var f = 0; f < fL; f++) {
+            var els = document.forms[f].elements;
+            for (var e in els) {
+                var tmp = (els[e].id != undefined) ? els[e].id : els[e].name;
+                if (typeof tmp != 'string') {
+                    continue;
+                }
+                if (tmp) {
+                    all[all.length] = tmp
+                }
+            }
+        }
+        return all;
+    }
+
+    function getVal(id) {
+        if (id.constructor == Function) {
+            return id();
+        }
+        if (typeof(id) != 'string') {
+            return id;
+        }
+        var element = document.getElementById(id);
+        if (!element) {
+            for (var i = 0; i < document.forms.length; i++) {
+                element = document.forms[i].elements[id];
+                if (element) break;
+            }
+            if (element && !element.type) element = element[0];
+        }
+        if (!element) {
+            alert('ERROR: Cant find HTML element with id or name: ' + id + '. Check that an element with name or id=' + id + ' exists');
+            return 0;
+        }
+        if (element.type == 'select-one') {
+            if (element.selectedIndex == -1) return;
+            var item = element[element.selectedIndex];
+            return item.value || item.text;
+        }
+        if (element.type == 'select-multiple') {
+            var ans = [];
+            var k = 0;
+            for (var i = 0; i < element.length; i++) {
+                if (element[i].selected || element[i].checked) {
+                    ans[k++] = element[i].value || element[i].text;
+                }
+            }
+            return ans;
+        }
+        if (element.type == 'radio' || element.type == 'checkbox') {
+            var ans = [];
+            var elms = document.getElementsByTagName('input');
+            var endk = elms.length;
+            var i = 0;
+            for (var k = 0; k < endk; k++) {
+                if (elms[k].type == element.type && elms[k].checked && (elms[k].id == id || elms[k].name == id)) {
+                    ans[i++] = elms[k].value;
+                }
+            }
+            return ans;
+        }
+        if (element.value == undefined) {
+            return element.innerHTML;
+        } else {
+            return element.value;
+        }
+    }
+
+    function fnsplit(arg) {
+        var url = "";
+        if (arg == 'NO_CACHE') {
+            cache = 0;
+            return "";
+        };
+        if ((typeof(arg)).toLowerCase() == 'object') {
+            for (var k in arg) {
+                url += '&' + k + '=' + arg[k];
+            }
+        } else if (arg.indexOf('__') != -1) {
+            arga = arg.split(/__/);
+            url += '&' + arga[0] + '=' + escape(arga[1]);
+        } else {
+            var res = getVal(arg) || '';
+            if (res.constructor != Array) {
+                res = [res]
+            } else if (res.length == 0) {
+                res = ['']
+            }
+            for (var i = 0; i < res.length; i++) {
+                url += '&args=' + escape(res[i]) + '&' + arg + '=' + escape(res[i]);
+            }
+        }
+        return url;
+    }
+    pjx.prototype = {
+        send2perl: function() {
+            var r = this.r;
+            var dt = this.target;
+            if (dt == undefined) {
+                return true;
+            }
+            this.pjxInitialized(dt);
+            var url = this.url;
+            var postdata;
+            if (this.method == "POST") {
+                var idx = url.indexOf('?');
+                postdata = url.substr(idx + 1);
+                url = url.substr(0, idx);
+            }
+            r.open(this.method, url, true);;
+            if (this.method == "POST") {
+                r.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+                r.send(postdata);
+            }
+            if (this.method == "GET") {
+                r.send(null);
+            }
+            r.onreadystatechange = handleReturn;
+        },
+        pjxInitialized: function() {},
+        pjxCompleted: function() {},
+        readyState4: function() {
+            var rsp = unescape(this.r.responseText); /* the response from perl */
+            var splitval = '__pjx__'; /* to split text */ /* fix IE problems with undef values in an Array getting squashed*/
+            rsp = rsp.replace(splitval + splitval + 'g', splitval + " " + splitval);
+            var data = rsp.split(splitval);
+            dt = this.target;
+            if (dt.constructor != Array) {
+                dt = [dt];
+            }
+            if (data.constructor != Array) {
+                data = [data];
+            }
+            if (typeof(dt[0]) != 'function') {
+                for (var i = 0; i < dt.length; i++) {
+                    var div = document.getElementById(dt[i]);
+                    if (div.type == 'text' || div.type == 'textarea' || div.type == 'hidden') {
+                        div.value = data[i];
+                    } else if (div.type == 'checkbox') {
+                        div.checked = data[i];
+                    } else {
+                        div.innerHTML = data[i];
+                    }
+                }
+            } else if (typeof(dt[0]) == 'function') {
+                dt[0].apply(this, data);
+            }
+            this.pjxCompleted(dt);
+        },
+        getURL: function(fname) {
+            var args = this.args;
+            var url = 'fname=' + fname;
+            for (var i = 0; i < args.length; i++) {
+                url = url + args[i];
+            }
+            return url;
+        }
+    };
+    handleReturn = function() {
+        for (var k = 0; k < ajax.length; k++) {
+            if (ajax[k].r == null) {
+                ajax.splice(k--, 1);
+                continue;
+            }
+            if (ajax[k].r.readyState == 4) {
+                ajax[k].readyState4();
+                ajax.splice(k--, 1);
+                continue;
+            }
+        }
+    };
+    var ghr = getghr();
+
+    function getghr() {
+        if (typeof XMLHttpRequest != "undefined") {
+            return function() {
+                return new XMLHttpRequest();
+            }
+        }
+        var msv = ["Msxml2.XMLHTTP.7.0", "Msxml2.XMLHTTP.6.0", "Msxml2.XMLHTTP.5.0", "Msxml2.XMLHTTP.4.0", "MSXML2.XMLHTTP.3.0", "MSXML2.XMLHTTP", "Microsoft.XMLHTTP"];
+        for (var j = 0; j <= msv.length; j++) {
+            try {
+                A = new ActiveXObject(msv[j]);
+                if (A) {
+                    return function() {
+                        return new ActiveXObject(msv[j]);
+                    }
+                }
+            } catch (e) {}
+        }
+        return false;
+    }
+
+    function jsdebug() {
+        var tmp = document.getElementById('pjxdebugrequest').innerHTML = "<br><pre>";
+        for (var i = 0; i < ajax.length; i++) {
+            tmp += '<a href= ' + ajax[i].url + ' target=_blank>' + decodeURI(ajax[i].url) + ' <' + '/a><br>';
+        }
+        document.getElementById('pjxdebugrequest').innerHTML = tmp + "<" + "/pre>";
+    }
+
+    function playerDetails() {
+        var args = playerDetails.arguments;
+        cache = 1;
+        for (var i = 0; i < args[0].length; i++) {
+            args[0][i] = fnsplit(args[0][i]);
+        }
+        var l = ajax.length;
+        ajax[l] = new pjx(args, "playerDetails", args[2]);
+        ajax[l].url = 'ootpou.pl?' + ajax[l].url;
+        if (cache == 0) {
+            ajax[l].url = ajax[l].url + '&pjxrand=' + Math.random();
+        }
+        ajax[l].send2perl();;
+    }
+    //]]>
+    </script>
+    <title>Rookie Draft Selection Report</title>
+    <meta http-equiv="content-language" content="en-us">
+    <meta http-equiv="content-type" content="text/html; charset=iso-8859-1">
+    <meta http-equiv="cache-control" content="no-cache">
+    <meta name="robots" content="none">
+    <link rel="stylesheet" type="text/css" href="http://www.thefibb.net/OOTPOU/styles-ootp13.css">
+    <script src="http://www.thefibb.net/news/html/scripts/sorttable.js"></script>
+    <script src="http://www.thefibb.net/OOTPOU/js/OOTPOU.js"></script>
+    <script src="http://www.thefibb.net/OOTPOU/js/swfobject.js"></script>
+    <script src="http://www.thefibb.net/OOTPOU/js/json/json2.js"></script>
+    <style>
+    a img {
+        border: none;
+    }
+    </style>
+</head>
+
+<body class="ext_bg" onLoad="setTableSize('draftPicks'); setTableSize('playerDetail')">
+    <table cellspacing="0" cellpadding="0" align="center" width="968px" border="1">
+        <tr>
+            <td>
+                <table border="0" width="968px" cellspacing="0" cellpadding="0" style="background-image:url(http://www.thefibb.net/OOTPOU/images/report_header.jpg); background-repeat:no-repeat;">
+                    <tr style="height:27px;">
+                        <td width="160px" style="padding:4px 0px 0px 10px; color:#FFFFFF; font-size:14px; font-weight:bold;">OOTP Online Utilities</td>
+                        <td width="648px"></td>
+                        <td width="160px"></td>
+                    </tr>
+                    <tr>
+                        <td align="left" rowspan=2 valign="top" style="padding:0px 0px 0px 3px;height:160px;">
+                            <a href="http://www.thefibb.net/news/html/leagues/league_100_home.html"><img src="http://www.thefibb.net/news/html/images/league_logos/global_unified_baseball_association.png" border="0" title="GUBA"></a>
+                        </td>
+                        <td align="right" valign="top" colspan=2>Logged in as Michael Napoleon (Crusaders) - <a href='ootpou.pl?page=profile'>Profile</a> | <a href='ootpou.pl?logout=y'>Logout</a>&nbsp;</td>
+                    </tr>
+                    <tr>
+                        <td valign="top">
+                            <table width="646px" border="0" cellspacing="0" cellpadding="0">
+                                <tr>
+                                    <td align="center" valign="top" style="padding-top:22px;">
+                                        <div class="reptitle">Global Unified Baseball Association</div>
+                                        <div class="repsubtitle">Rookie Draft Selection Report</div>
+                                    </td>
+                                    <td><img src="http://www.thefibb.net/news/html/images/pixel.gif" width="1" height="117"></td>
+                                </tr>
+                                <tr>
+                                    <td align="center" valign="top" class="menu">
+                                        <a href="http://www.thefibb.net/news/html/leagues/league_100_home.html" class="menu">GUBA</a> | <a href="ootpou.pl?page=allstar" class="menu">Allstar</a> | <a href="ootpou.pl?page=awards" class="menu">Awards</a> | <a href="ootpou.pl?page=development" class="menu">Dev</a> | <a href="ootpou.pl?page=draft" class="menu" style="color:#3366AA">Draft</a> | <a href="ootpou.pl?page=export" class="menu">Exports</a> | <a href="ootpou.pl?page=hof" class="menu">HoF</a> | <a href="ootpou.pl?page=lsRes" class="menu">Last Sim</a> | <a href="ootpou.pl?page=liveSim" class="menu">Live Sim</a> | <a href="ootpou.pl?page=managers" class="menu">Managers</a> | <a href="ootpou.pl?page=ratings" class="menu">Stats</a></td>
+                                </tr>
+                                <tr>
+                                    <td align='center' style='padding-top:7px;padding-bottom:3px;color:white'><a style='color:#AAAACC;' onmouseover='this.style.color="#BBDDFF"' onmouseout='this.style.color="#AAAACC"' href='ootpou.pl?page=draft'>Draft</a> | <a style="color:#BBDDFF;" href='ootpou.pl?page=draftPicks'>Selections</a> | <a style='color:#AAAACC;' onmouseover='this.style.color="#BBDDFF"' onmouseout='this.style.color="#AAAACC"' href='ootpou.pl?page=draftFuture'>Traded Picks</a> | <a style='color:#AAAACC;' onmouseover='this.style.color="#BBDDFF"' onmouseout='this.style.color="#AAAACC"' href='ootpou.pl?page=draftHistory'>History</a></td>
+                                </tr>
+                            </table>
+                        </td>
+                        <td width="160px"></td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+        <tr>
+            <td style="padding-top:2px;padding-left:2px;padding-bottom:0px;padding-right:2px;">
+                <table cellspacing="0" cellpadding="0" width="100%" style="margin-bottom:5px;">
+                    <tr>
+                        <td width="50%">
+                            <input type="hidden" id="playerId" />
+                            <input type="hidden" id="chData" />
+                            <input type="hidden" id="links" value="D|R" />
+                            <input type="hidden" id="detailsType" value="ratings" />
+                            <div id="draftPicks" style="height:200px;overflow:auto">
+                                <table width="100%" cellspacing="0" cellpadding="0" class="data">
+                                    <tr>
+                                        <th class="dl">#</th>
+                                        <th class="dl">Team</th>
+                                        <th align="right">Selection&nbsp;</th>
+                                    </tr>
+                                    <tr>
+                                        <td>1</td>
+                                        <td>Marauders</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31615;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Adrastos Georgousopoulos</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>2</td>
+                                        <td>Toros</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31351;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Stephen Padkin</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>3</td>
+                                        <td>Express(from Moonshiners)</td>
+                                        <td align='right'>3B <a href='#' onclick="document.getElementById('playerId').value=31340;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Alan MacGillycuddy</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="ouHighlight">4</td>
+                                        <td class="ouHighlight">Crusaders</td>
+                                        <td class="ouHighlight" align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31335;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Asmo Prawiranega</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>5</td>
+                                        <td>Tidal Wave</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=19247;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Abdul bin Tahir</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>6</td>
+                                        <td>Moonshiners(from Express)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31325;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Ramiro Escobar</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>7</td>
+                                        <td>Island Kings</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31758;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Nikolai Mazur</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>8</td>
+                                        <td>Hooks</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31497;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Gareth Ayres</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>9</td>
+                                        <td>Brewers(from Admirals)</td>
+                                        <td align='right'>RF <a href='#' onclick="document.getElementById('playerId').value=31375;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Craig Morales</a>*</td>
+                                    </tr>
+                                    <tr>
+                                        <td>10</td>
+                                        <td>Tiburones</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31342;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Jim Wilson</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>11</td>
+                                        <td>Orbits</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31562;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Ruben Casey</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>12</td>
+                                        <td>Pharaohs</td>
+                                        <td align='right'>CL <a href='#' onclick="document.getElementById('playerId').value=31440;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Edouard Chevalier</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>13</td>
+                                        <td>Express(from Monarchs)</td>
+                                        <td align='right'>SS <a href='#' onclick="document.getElementById('playerId').value=31500;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Brandon Barnes</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>14</td>
+                                        <td>Marauders(from Dragons)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31482;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Byung-ho Park</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>15</td>
+                                        <td>Enforcers(from Knights)</td>
+                                        <td align='right'>CL <a href='#' onclick="document.getElementById('playerId').value=31369;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Jose Rivera</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>16</td>
+                                        <td>Toros(from Beavers)</td>
+                                        <td align='right'>CL <a href='#' onclick="document.getElementById('playerId').value=15122;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Ruben Martinez</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>17</td>
+                                        <td>Sounds</td>
+                                        <td align='right'>SS <a href='#' onclick="document.getElementById('playerId').value=31344;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Gerald Thackray</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>18</td>
+                                        <td>Express(from Prospectors)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=20116;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Adrian Albrigtsen</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>19</td>
+                                        <td>Brewers</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=29750;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Tong-yeop Hwangbo</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>20</td>
+                                        <td>Pharaohs(from Bison)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31543;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Ron Phillips</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>21</td>
+                                        <td>Outlaws</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=28047;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Kjetil Vagen</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>22</td>
+                                        <td>Island Kings(from Tortugas)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=28811;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Vicente Cruz</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>23</td>
+                                        <td>Admirals(from Shamrocks)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=19319;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Brent Muirhead</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>24</td>
+                                        <td>Orbits(from Spitfires)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=14273;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Manuel Muijlwijk</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>25</td>
+                                        <td>Albicelestes(from Kernels)</td>
+                                        <td align='right'>CF <a href='#' onclick="document.getElementById('playerId').value=31737;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Yasuhiro Shimizu</a>*</td>
+                                    </tr>
+                                    <tr>
+                                        <td>26</td>
+                                        <td>Express(from Oncas)</td>
+                                        <td align='right'>CF <a href='#' onclick="document.getElementById('playerId').value=31367;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Carlos Rivera</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>27</td>
+                                        <td>Bison(from Albicelestes)</td>
+                                        <td align='right'>MR <a href='#' onclick="document.getElementById('playerId').value=26238;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Asbjorn Horgen</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>28</td>
+                                        <td>Enforcers</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31698;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Yassin Bonnefoy</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>29</td>
+                                        <td>Admirals(from Crushers)</td>
+                                        <td align='right'>RF <a href='#' onclick="document.getElementById('playerId').value=31337;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Antonio Duran</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>30</td>
+                                        <td>Bears</td>
+                                        <td align='right'>CF <a href='#' onclick="document.getElementById('playerId').value=31388;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Miguel Hernandez</a></td>
+                                    </tr>
+                                    <tr>
+                                        <th width=25 style='border-top:1px solid #818586;'>#</th>
+                                        <th style='width:180px;border-top:1px solid #818586;'>Round 2</th>
+                                        <th style='border-top:1px solid #818586;'>&nbsp;</th>
+                                    </tr>
+                                    <tr>
+                                        <td>31</td>
+                                        <td>Toros(from Marauders)</td>
+                                        <td align='right'>MR <a href='#' onclick="document.getElementById('playerId').value=27877;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Javier Roman</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>32</td>
+                                        <td>Enforcers(from Toros)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31365;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Gilles Leclerc</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>33</td>
+                                        <td>Island Kings(from Moonshiners)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=29914;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Fernando Salas</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="ouHighlight">34</td>
+                                        <td class="ouHighlight">Crusaders</td>
+                                        <td class="ouHighlight" align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31641;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Rich Kearton</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>35</td>
+                                        <td>Tidal Wave</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31558;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Adhamhnan Pamungkas</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>36</td>
+                                        <td>Toros(from Express)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31425;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Giles Grivas</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>37</td>
+                                        <td>Island Kings</td>
+                                        <td align='right'>CF <a href='#' onclick="document.getElementById('playerId').value=31328;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Alex Osborn</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>38</td>
+                                        <td>Hooks</td>
+                                        <td align='right'>MR <a href='#' onclick="document.getElementById('playerId').value=31478;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Terry Anderson</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>39</td>
+                                        <td>Knights(from Admirals)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31363;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Rafal Szarzynski</a>*</td>
+                                    </tr>
+                                    <tr>
+                                        <td>40</td>
+                                        <td>Admirals(from Tiburones)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31405;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Clancy Halsall</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>41</td>
+                                        <td>Admirals(from Orbits)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31536;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Brody Hewat</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>42</td>
+                                        <td>Island Kings(from Pharaohs)</td>
+                                        <td align='right'>CL <a href='#' onclick="document.getElementById('playerId').value=31739;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Edgardo Bernal</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>43</td>
+                                        <td>Marauders(from Monarchs)</td>
+                                        <td align='right'>C <a href='#' onclick="document.getElementById('playerId').value=31426;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Lance van Duijn</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>44</td>
+                                        <td>Bears(from Dragons)</td>
+                                        <td align='right'>CF <a href='#' onclick="document.getElementById('playerId').value=31655;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Zoello Panayi</a>*</td>
+                                    </tr>
+                                    <tr>
+                                        <td>45</td>
+                                        <td>Knights</td>
+                                        <td align='right'>SS <a href='#' onclick="document.getElementById('playerId').value=27898;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Sung-heun Chong</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>46</td>
+                                        <td>Bison(from Beavers)</td>
+                                        <td align='right'>CF <a href='#' onclick="document.getElementById('playerId').value=28493;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Ogai Ito</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>47</td>
+                                        <td>Prospectors(from Sounds)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31675;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Noah Bertelsen</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>48</td>
+                                        <td>Pharaohs(from Prospectors)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31507;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Josh Ware</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>49</td>
+                                        <td>Admirals(from Brewers)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31673;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Hjalmar Spaan</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>50</td>
+                                        <td>Tiburones(from Bison)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31752;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Freddi Volker</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>51</td>
+                                        <td>Outlaws</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=13978;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Domingo Lopez</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>52</td>
+                                        <td>Hooks(from Tortugas)</td>
+                                        <td align='right'>MR <a href='#' onclick="document.getElementById('playerId').value=31314;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Ruben Rousseau</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>53</td>
+                                        <td>Tidal Wave(from Shamrocks)</td>
+                                        <td align='right'>MR <a href='#' onclick="document.getElementById('playerId').value=31353;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Bronson Ottaway</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>54</td>
+                                        <td>Brewers(from Spitfires)</td>
+                                        <td align='right'>SS <a href='#' onclick="document.getElementById('playerId').value=31421;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Pedro Ortiz</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>55</td>
+                                        <td>Enforcers(from Kernels)</td>
+                                        <td align='right'>SS <a href='#' onclick="document.getElementById('playerId').value=31710;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Pancho Rodriguez</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>56</td>
+                                        <td>Oncas</td>
+                                        <td align='right'>MR <a href='#' onclick="document.getElementById('playerId').value=31494;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Fernando Mata</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>57</td>
+                                        <td>Enforcers(from Albicelestes)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31540;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Brogan Fleetwood</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>58</td>
+                                        <td>Beavers(from Enforcers)</td>
+                                        <td align='right'>SS <a href='#' onclick="document.getElementById('playerId').value=26364;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Moses van Campen</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>59</td>
+                                        <td>Moonshiners(from Crushers)</td>
+                                        <td align='right'>CF <a href='#' onclick="document.getElementById('playerId').value=31649;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Ulryk Koslacz</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>60</td>
+                                        <td>Pharaohs(from Bears)</td>
+                                        <td align='right'>CF <a href='#' onclick="document.getElementById('playerId').value=31432;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Ricardo Barrera</a></td>
+                                    </tr>
+                                    <tr>
+                                        <th width=25 style='border-top:1px solid #818586;'>#</th>
+                                        <th style='width:180px;border-top:1px solid #818586;'>Round 3</th>
+                                        <th style='border-top:1px solid #818586;'>&nbsp;</th>
+                                    </tr>
+                                    <tr>
+                                        <td>61</td>
+                                        <td>Albicelestes(from Marauders)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31411;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Damon Vaphiadis</a>*</td>
+                                    </tr>
+                                    <tr>
+                                        <td>62</td>
+                                        <td>Prospectors(from Toros)</td>
+                                        <td align='right'>MR <a href='#' onclick="document.getElementById('playerId').value=31561;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Qui-li Ti</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>63</td>
+                                        <td>Tortugas(from Moonshiners)</td>
+                                        <td align='right'>RF <a href='#' onclick="document.getElementById('playerId').value=31319;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Bill Graham</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>64</td>
+                                        <td>Marauders(from Crusaders)</td>
+                                        <td align='right'>C <a href='#' onclick="document.getElementById('playerId').value=31525;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Joshua Bardon</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>65</td>
+                                        <td>Dragons(from Tidal Wave)</td>
+                                        <td align='right'>CF <a href='#' onclick="document.getElementById('playerId').value=31460;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Jim Daniels</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>66</td>
+                                        <td>Marauders(from Express)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31306;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Neil Ballard</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>67</td>
+                                        <td>Sounds(from Island Kings)</td>
+                                        <td align='right'>MR <a href='#' onclick="document.getElementById('playerId').value=31424;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Roberto Montano</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>68</td>
+                                        <td>Beavers(from Hooks)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31479;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Kit Pefanis</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>69</td>
+                                        <td>Brewers(from Admirals)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31603;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Darren Poldermans</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>70</td>
+                                        <td>Outlaws(from Tiburones)</td>
+                                        <td align='right'>MR <a href='#' onclick="document.getElementById('playerId').value=31624;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Paul Ryan</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>71</td>
+                                        <td>Orbits</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31313;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Sylvain Caron</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>72</td>
+                                        <td>Sounds(from Pharaohs)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31339;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Griffin Papillon</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>73</td>
+                                        <td>Bison(from Monarchs)</td>
+                                        <td align='right'>CF <a href='#' onclick="document.getElementById('playerId').value=14180;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Enrique VelÃ¡zquez</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>74</td>
+                                        <td>Island Kings(from Dragons)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31568;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Ruslan Ragozin</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>75</td>
+                                        <td>Admirals(from Knights)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31670;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Albert Gilliart</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>76</td>
+                                        <td>Shamrocks(from Beavers)</td>
+                                        <td align='right'>MR <a href='#' onclick="document.getElementById('playerId').value=19198;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">EmÃ­lio RenterÃ­a</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>77</td>
+                                        <td>Sounds</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=14155;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Garry Mirsky</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>78</td>
+                                        <td>Bison(from Prospectors)</td>
+                                        <td align='right'>2B <a href='#' onclick="document.getElementById('playerId').value=31334;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Patrick Da Costa</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>79</td>
+                                        <td>Moonshiners(from Brewers)</td>
+                                        <td align='right'>CF <a href='#' onclick="document.getElementById('playerId').value=19374;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Baskoro Nitisastro</a>*</td>
+                                    </tr>
+                                    <tr>
+                                        <td>80</td>
+                                        <td>Albicelestes(from Bison)</td>
+                                        <td align='right'>C <a href='#' onclick="document.getElementById('playerId').value=29360;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Oliver Dring</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>81</td>
+                                        <td>Tidal Wave(from Outlaws)</td>
+                                        <td align='right'>MR <a href='#' onclick="document.getElementById('playerId').value=31305;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Bill Grimes</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>82</td>
+                                        <td>Express(from Tortugas)</td>
+                                        <td align='right'>SS <a href='#' onclick="document.getElementById('playerId').value=31651;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">JesÃºs HernÃ¡ndez</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>83</td>
+                                        <td>Tiburones(from Shamrocks)</td>
+                                        <td align='right'>2B <a href='#' onclick="document.getElementById('playerId').value=31713;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Mark Hunt</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>84</td>
+                                        <td>Hooks(from Spitfires)</td>
+                                        <td align='right'>CF <a href='#' onclick="document.getElementById('playerId').value=31317;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Ryan Robinson</a>*</td>
+                                    </tr>
+                                    <tr>
+                                        <td>85</td>
+                                        <td>Knights(from Kernels)</td>
+                                        <td align='right'>2B <a href='#' onclick="document.getElementById('playerId').value=19230;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Corbin Jenkins</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>86</td>
+                                        <td>Albicelestes(from Oncas)</td>
+                                        <td align='right'>MR <a href='#' onclick="document.getElementById('playerId').value=31533;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Driscoll Smeeth</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>87</td>
+                                        <td>Prospectors(from Albicelestes)</td>
+                                        <td align='right'>MR <a href='#' onclick="document.getElementById('playerId').value=31524;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">GermÃ¡n MartÃ­nez</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>88</td>
+                                        <td>Tortugas(from Enforcers)</td>
+                                        <td align='right'>C <a href='#' onclick="document.getElementById('playerId').value=27049;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Dave Douglas</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>89</td>
+                                        <td>Marauders(from Crushers)</td>
+                                        <td align='right'>SS <a href='#' onclick="document.getElementById('playerId').value=31492;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Aidan Ouwendijk</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>90</td>
+                                        <td>Dragons(from Bears)</td>
+                                        <td align='right'>SS <a href='#' onclick="document.getElementById('playerId').value=31672;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Alje Noussen</a></td>
+                                    </tr>
+                                    <tr>
+                                        <th width=25 style='border-top:1px solid #818586;'>#</th>
+                                        <th style='width:180px;border-top:1px solid #818586;'>Round 4</th>
+                                        <th style='border-top:1px solid #818586;'>&nbsp;</th>
+                                    </tr>
+                                    <tr>
+                                        <td>91</td>
+                                        <td>Pharaohs(from Marauders)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=20112;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Mario Marin</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>92</td>
+                                        <td>Marauders(from Toros)</td>
+                                        <td align='right'>C <a href='#' onclick="document.getElementById('playerId').value=31416;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Erwin Phillips</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>93</td>
+                                        <td>Moonshiners</td>
+                                        <td align='right'>CF <a href='#' onclick="document.getElementById('playerId').value=31687;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Claudio Tapia</a>*</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="ouHighlight">94</td>
+                                        <td class="ouHighlight">Crusaders</td>
+                                        <td class="ouHighlight" align='right'>CF <a href='#' onclick="document.getElementById('playerId').value=31462;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Anson Buchert</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>95</td>
+                                        <td>Beavers(from Tidal Wave)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31746;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Alonso Mesia</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>96</td>
+                                        <td>Admirals(from Express)</td>
+                                        <td align='right'>MR <a href='#' onclick="document.getElementById('playerId').value=31588;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Ju-yi Ow-Yang</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>97</td>
+                                        <td>Island Kings</td>
+                                        <td align='right'>SS <a href='#' onclick="document.getElementById('playerId').value=31466;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Alfredo Duran</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>98</td>
+                                        <td>Hooks</td>
+                                        <td align='right'>SS <a href='#' onclick="document.getElementById('playerId').value=31545;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Bill Hayes</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>99</td>
+                                        <td>Admirals</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31626;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Memir Tufan</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>100</td>
+                                        <td>Express(from Tiburones)</td>
+                                        <td align='right'>1B <a href='#' onclick="document.getElementById('playerId').value=20190;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Lucas Kingman</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>101</td>
+                                        <td>Orbits</td>
+                                        <td align='right'>3B <a href='#' onclick="document.getElementById('playerId').value=26379;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Yuri Pasechnik</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>102</td>
+                                        <td>Tidal Wave(from Pharaohs)</td>
+                                        <td align='right'>1B <a href='#' onclick="document.getElementById('playerId').value=31439;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Henry Homan</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>103</td>
+                                        <td>Monarchs</td>
+                                        <td align='right'>C <a href='#' onclick="document.getElementById('playerId').value=31691;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Jose Castaneda</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>104</td>
+                                        <td>Tortugas(from Dragons)</td>
+                                        <td align='right'>CF <a href='#' onclick="document.getElementById('playerId').value=31398;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Virgil Janssen</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>105</td>
+                                        <td>Knights</td>
+                                        <td align='right'>C <a href='#' onclick="document.getElementById('playerId').value=31379;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Jesus Muniz</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>106</td>
+                                        <td>Crushers(from Beavers)</td>
+                                        <td align='right'>CF <a href='#' onclick="document.getElementById('playerId').value=14069;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Dean Dickson</a>*</td>
+                                    </tr>
+                                    <tr>
+                                        <td>107</td>
+                                        <td>Admirals(from Sounds)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=17945;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Greg Thompson</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>108</td>
+                                        <td>Prospectors</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31580;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Bill Jones</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>109</td>
+                                        <td>Brewers</td>
+                                        <td align='right'>MR <a href='#' onclick="document.getElementById('playerId').value=31732;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Raul Perez</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>110</td>
+                                        <td>Pharaohs(from Bison)</td>
+                                        <td align='right'>MR <a href='#' onclick="document.getElementById('playerId').value=31596;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Lou Wuilink</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>111</td>
+                                        <td>Outlaws</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31740;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Jorge Encarnacion</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>112</td>
+                                        <td>Tortugas</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31514;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Luis Montoya</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>113</td>
+                                        <td>Shamrocks</td>
+                                        <td align='right'>SS <a href='#' onclick="document.getElementById('playerId').value=31481;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Edgar Staubel</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>114</td>
+                                        <td>Spitfires</td>
+                                        <td align='right'>CF <a href='#' onclick="document.getElementById('playerId').value=31400;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Jaime Trevino</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>115</td>
+                                        <td>Toros(from Kernels)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31694;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Ivan Speed</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>116</td>
+                                        <td>Oncas</td>
+                                        <td align='right'>CF <a href='#' onclick="document.getElementById('playerId').value=31572;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Javier Guillen</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>117</td>
+                                        <td>Albicelestes</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31549;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Gunawan Pane</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>118</td>
+                                        <td>Express(from Enforcers)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31590;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Marcel de Weever</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="ouHighlight">119</td>
+                                        <td class="ouHighlight">Crusaders(from Crushers)</td>
+                                        <td class="ouHighlight" align='right'>CF <a href='#' onclick="document.getElementById('playerId').value=31688;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Chad Seymour</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>120</td>
+                                        <td>Bears</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31322;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Nikolai Syrstad</a>*</td>
+                                    </tr>
+                                    <tr>
+                                        <th width=25 style='border-top:1px solid #818586;'>#</th>
+                                        <th style='width:180px;border-top:1px solid #818586;'>Round 5</th>
+                                        <th style='border-top:1px solid #818586;'>&nbsp;</th>
+                                    </tr>
+                                    <tr>
+                                        <td>121</td>
+                                        <td>Marauders</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31575;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Eugene Pagonis</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>122</td>
+                                        <td>Toros</td>
+                                        <td align='right'>C <a href='#' onclick="document.getElementById('playerId').value=31661;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Randy Morrow</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>123</td>
+                                        <td>Moonshiners</td>
+                                        <td align='right'>SS <a href='#' onclick="document.getElementById('playerId').value=20033;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Gerardo Escobar</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td class="ouHighlight">124</td>
+                                        <td class="ouHighlight">Crusaders</td>
+                                        <td class="ouHighlight" align='right'>MR <a href='#' onclick="document.getElementById('playerId').value=31480;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Juan PÃ©rez</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>125</td>
+                                        <td>Tidal Wave</td>
+                                        <td align='right'>CF <a href='#' onclick="document.getElementById('playerId').value=14014;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Koos Verboven</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>126</td>
+                                        <td>Express</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31550;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Fred Missel</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>127</td>
+                                        <td>Moonshiners(from Island Kings)</td>
+                                        <td align='right'>LF <a href='#' onclick="document.getElementById('playerId').value=31656;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Darrel Gandon</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>128</td>
+                                        <td>Prospectors(from Hooks)</td>
+                                        <td align='right'>CF <a href='#' onclick="document.getElementById('playerId').value=31303;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Keiran Cusack</a>*</td>
+                                    </tr>
+                                    <tr>
+                                        <td>129</td>
+                                        <td>Admirals</td>
+                                        <td align='right'>SS <a href='#' onclick="document.getElementById('playerId').value=25954;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Mike Olson</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>130</td>
+                                        <td>Tiburones</td>
+                                        <td align='right'>CF <a href='#' onclick="document.getElementById('playerId').value=28684;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Anastasio Villanueva</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>131</td>
+                                        <td>Toros(from Orbits)</td>
+                                        <td align='right'>SS <a href='#' onclick="document.getElementById('playerId').value=31753;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Ponco Maryadi</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>132</td>
+                                        <td>Pharaohs</td>
+                                        <td align='right'>CF <a href='#' onclick="document.getElementById('playerId').value=31680;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Adrian Daniels</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>133</td>
+                                        <td>Marauders(from Monarchs)</td>
+                                        <td align='right'>CF <a href='#' onclick="document.getElementById('playerId').value=31361;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Manny FernÃ¡ndez</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>134</td>
+                                        <td>Bears(from Dragons)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=27106;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Jorge SÃ¡nchez</a>*</td>
+                                    </tr>
+                                    <tr>
+                                        <td>135</td>
+                                        <td>Beavers(from Knights)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31399;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Fabien Roger</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>136</td>
+                                        <td>Beavers</td>
+                                        <td align='right'>CF <a href='#' onclick="document.getElementById('playerId').value=30032;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Wulf Rooks</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>137</td>
+                                        <td>Shamrocks(from Sounds)</td>
+                                        <td align='right'>SP <a href='#' onclick="document.getElementById('playerId').value=31643;playerDetails(['detailsType', 'links', 'playerId'], [showPlayerDetail])">Arthur Price</a></td>
+                                    </tr>
+                                    <tr>
+                                        <td>138</td>
+                                        <td>Tiburones(from Prospectors)</td>
+                                        <td align='right'>Pick due by Thursday at 10:59 am</td>
+                                    </tr>
+                                    <tr>
+                                        <td>139</td>
+                                        <td>Toros(from Brewers)</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>140</td>
+                                        <td>Sounds(from Bison)</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>141</td>
+                                        <td>Outlaws</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>142</td>
+                                        <td>Tortugas</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>143</td>
+                                        <td>Shamrocks</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>144</td>
+                                        <td>Prospectors(from Spitfires)</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>145</td>
+                                        <td>Kernels</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>146</td>
+                                        <td>Oncas</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>147</td>
+                                        <td>Enforcers(from Albicelestes)</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>148</td>
+                                        <td>Crushers(from Enforcers)</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>149</td>
+                                        <td>Knights(from Crushers)</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>150</td>
+                                        <td>Bears</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <th width=25 style='border-top:1px solid #818586;'>#</th>
+                                        <th style='width:180px;border-top:1px solid #818586;'>Round 6</th>
+                                        <th style='border-top:1px solid #818586;'>&nbsp;</th>
+                                    </tr>
+                                    <tr>
+                                        <td>151</td>
+                                        <td>Marauders</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>152</td>
+                                        <td>Toros</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>153</td>
+                                        <td>Enforcers(from Moonshiners)</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>154</td>
+                                        <td>Moonshiners(from Crusaders)</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>155</td>
+                                        <td>Admirals(from Tidal Wave)</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>156</td>
+                                        <td>Toros(from Express)</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>157</td>
+                                        <td>Island Kings</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>158</td>
+                                        <td>Hooks</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>159</td>
+                                        <td>Admirals</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>160</td>
+                                        <td>Tiburones</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>161</td>
+                                        <td>Toros(from Orbits)</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>162</td>
+                                        <td>Island Kings(from Pharaohs)</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>163</td>
+                                        <td>Monarchs</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>164</td>
+                                        <td>Dragons</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>165</td>
+                                        <td>Knights</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>166</td>
+                                        <td>Crushers(from Beavers)</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>167</td>
+                                        <td>Orbits(from Sounds)</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>168</td>
+                                        <td>Prospectors</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>169</td>
+                                        <td>Brewers</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>170</td>
+                                        <td>Monarchs(from Bison)</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>171</td>
+                                        <td>Outlaws</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>172</td>
+                                        <td>Tortugas</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>173</td>
+                                        <td>Shamrocks</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>174</td>
+                                        <td>Spitfires</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>175</td>
+                                        <td>Kernels</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>176</td>
+                                        <td>Crushers(from Oncas)</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>177</td>
+                                        <td>Albicelestes</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>178</td>
+                                        <td>Enforcers</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="ouHighlight">179</td>
+                                        <td class="ouHighlight">Crusaders(from Crushers)</td>
+                                        <td class="ouHighlight" align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>180</td>
+                                        <td>Bears</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <th width=25 style='border-top:1px solid #818586;'>#</th>
+                                        <th style='width:180px;border-top:1px solid #818586;'>Round 7</th>
+                                        <th style='border-top:1px solid #818586;'>&nbsp;</th>
+                                    </tr>
+                                    <tr>
+                                        <td>181</td>
+                                        <td>Marauders</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>182</td>
+                                        <td>Toros</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>183</td>
+                                        <td>Moonshiners</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>184</td>
+                                        <td>Toros(from Crusaders)</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>185</td>
+                                        <td>Beavers(from Tidal Wave)</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>186</td>
+                                        <td>Crushers(from Express)</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>187</td>
+                                        <td>Island Kings</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>188</td>
+                                        <td>Hooks</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>189</td>
+                                        <td>Admirals</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>190</td>
+                                        <td>Tiburones</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>191</td>
+                                        <td>Tidal Wave(from Orbits)</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>192</td>
+                                        <td>Prospectors(from Pharaohs)</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>193</td>
+                                        <td>Monarchs</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>194</td>
+                                        <td>Dragons</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>195</td>
+                                        <td>Knights</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>196</td>
+                                        <td>Crushers(from Beavers)</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>197</td>
+                                        <td>Sounds</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>198</td>
+                                        <td>Pharaohs(from Prospectors)</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>199</td>
+                                        <td>Brewers</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>200</td>
+                                        <td>Monarchs(from Bison)</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>201</td>
+                                        <td>Outlaws</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>202</td>
+                                        <td>Tortugas</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>203</td>
+                                        <td>Orbits(from Shamrocks)</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>204</td>
+                                        <td>Spitfires</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>205</td>
+                                        <td>Kernels</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="ouHighlight">206</td>
+                                        <td class="ouHighlight">Crusaders(from Oncas)</td>
+                                        <td class="ouHighlight" align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>207</td>
+                                        <td>Enforcers(from Albicelestes)</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>208</td>
+                                        <td>Enforcers</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>209</td>
+                                        <td>Crushers</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                    <tr>
+                                        <td>210</td>
+                                        <td>Bears</td>
+                                        <td align='right'>&nbsp;</td>
+                                    </tr>
+                                </table>
+                            </div>
+                        </td>
+                        <td width="50%" valign="top">
+                            <div id="playerDetail" style="height:200px;overflow:auto">
+                                <table cellpadding=0 cellspacing=0 border=0 width="100%" class="databg" style="margin-bottom:0px;margin-top:0px">
+                                    <tr>
+                                        <th colspan=5 class="datath" style="border-bottom:1px solid #818586;">Select a Player</th>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <table class='databg' cellspacing=0 cellpadding=0>
+                                                <tr>
+                                                    <td rowspan=4 width='94px'><img width='90px' height='135px' src="http://www.thefibb.net/news/html/images/person_pictures/default_player_photo.png"></td>
+                                                    <td height='12px' width='70%'>&nbsp;Team:</td>
+                                                    <td height='12px' width="30%">Age:</td>
+                                                </tr>
+                                                <tr>
+                                                    <td height='12px' class='s1_l' width="70%">&nbsp;Drafted:</td>
+                                                    <td class='s1_l' height='12px' width='30%'>Bats:</td>
+                                                </tr>
+                                                <tr>
+                                                    <td height="100%" colspan="2">
+                                                        <table border="0" class="data" height="100%" cellspacing="0" cellpadding="0" width="100%">
+                                                            <tr>
+                                                                <th style="font-size:12px;border-top:1px solid #818586;">&nbsp;</th>
+                                                                <th style="font-size:12px;border-top:1px solid #818586;">Overall</th>
+                                                                <th style="font-size:12px;border-top:1px solid #818586;">Vs Left</th>
+                                                                <th style="font-size:12px;border-top:1px solid #818586;">Vs Right</th>
+                                                                <th style="font-size:12px;border-top:1px solid #818586;">Potential</th>
+                                                            </tr>
+                                                            <tr>
+                                                                <td class="dl">Contact</td>
+                                                                <td>&nbsp;</td>
+                                                                <td>&nbsp;</td>
+                                                                <td>&nbsp;</td>
+                                                                <td>&nbsp;</td>
+                                                            </tr>
+                                                            <tr class="captlg">
+                                                                <td style="padding-left:3;">Gap</td>
+                                                                <td>&nbsp;</td>
+                                                                <td>&nbsp;</td>
+                                                                <td>&nbsp;</td>
+                                                                <td>&nbsp;</td>
+                                                            </tr>
+                                                            <tr class="captl">
+                                                                <td style="padding-left:3;">Power</td>
+                                                                <td>&nbsp;</td>
+                                                                <td>&nbsp;</td>
+                                                                <td>&nbsp;</td>
+                                                                <td>&nbsp;</td>
+                                                            </tr>
+                                                            <tr class="captlg">
+                                                                <td style="padding-left:3;">Eye</td>
+                                                                <td>&nbsp;</td>
+                                                                <td>&nbsp;</td>
+                                                                <td>&nbsp;</td>
+                                                                <td>&nbsp;</td>
+                                                            </tr>
+                                                            <tr class="captl">
+                                                                <td style="padding-left:3;">Avoid K</td>
+                                                                <td>&nbsp;</td>
+                                                                <td>&nbsp;</td>
+                                                                <td>&nbsp;</td>
+                                                                <td>&nbsp;</td>
+                                                            </tr>
+                                                        </table>
+                                                    </td>
+                                                </tr>
+                                            </table>
+                                            <table width="100%" cellpadding=1 cellspacing=0 class="data">
+                                                <tr>
+                                                    <th class="datath" style="font-size:14px;border-top:1px solid #818586;">&nbsp;Development Chart</th>
+                                                </tr>
+                                            </table>
+                                            <div id="playerDetailChart" style="width:475;height:200"> </div>
+                                            <table cellpadding=0 cellspacing=0 border=0 width="100%" class="data">
+                                                <tr class='title'>
+                                                    <th width='89%' style='padding:2px;padding-left:4px;font-size:14px;border-top:1px solid #818586;'>Recent Development</th>
+                                                </tr>
+                                            </table>
+                                        </td>
+                                    </tr>
+                                </table>
+                            </div>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+        <tr>
+            <td background="http://www.thefibb.net/news/html/images/bg_bottom.jpg" style="padding-top:5px">
+                <div style="height:23px;overflow:hidden">
+                    <form action="https://www.paypal.com/cgi-bin/webscr" name="donate" method="post">
+                        <table width="100%" cellspacing="0" cellpadding="0" align="center">
+                            <tr>
+                                <td align="center">
+                                    <input type="hidden" name="cmd" value="_s-xclick">
+                                    <input type="hidden" name="encrypted" value="-----BEGIN PKCS7-----MIIHNwYJKoZIhvcNAQcEoIIHKDCCByQCAQExggEwMIIBLAIBADCBlDCBjjELMAkGA1UEBhMCVVMxCzAJBgNVBAgTAkNBMRYwFAYDVQQHEw1Nb3VudGFpbiBWaWV3MRQwEgYDVQQKEwtQYXlQYWwgSW5jLjETMBEGA1UECxQKbGl2ZV9jZXJ0czERMA8GA1UEAxQIbGl2ZV9hcGkxHDAaBgkqhkiG9w0BCQEWDXJlQHBheXBhbC5jb20CAQAwDQYJKoZIhvcNAQEBBQAEgYC9x/KN0jrBVclFtXnvRtmqDo59ZXsNGvkXwhTbdCIVdIAMn1MqxGLAX4PEpwkbSUGUVF46Lrca/tY+Y7cW0XEMwlEYsPpVuHfRHK3oa2nYtS5WrJGhyGlvYOPGdIXfQhgQoRPaB8ZT2ObV1ufWfepYuFpCBk9dkwCq/Q6dmkJ+ITELMAkGBSsOAwIaBQAwgbQGCSqGSIb3DQEHATAUBggqhkiG9w0DBwQIH/hcfrtV6CmAgZDS04UH1TbaO7Sy62JkI3afs78WsIqBtAiLA/iVjrEaypP2XyJoCW0oITznden7qkT7zwdVddEIFBV+m+MCE8rEGKBhH5V1G5g+nAVEMripaDOI7RGxAKqlwndyy4eU/2kfhhJcZGAGX0ywTnaNkLj4RSCKCeI9T0AosfHop5t9rcJ8ioJFg8iwyOsxqAvaS7SgggOHMIIDgzCCAuygAwIBAgIBADANBgkqhkiG9w0BAQUFADCBjjELMAkGA1UEBhMCVVMxCzAJBgNVBAgTAkNBMRYwFAYDVQQHEw1Nb3VudGFpbiBWaWV3MRQwEgYDVQQKEwtQYXlQYWwgSW5jLjETMBEGA1UECxQKbGl2ZV9jZXJ0czERMA8GA1UEAxQIbGl2ZV9hcGkxHDAaBgkqhkiG9w0BCQEWDXJlQHBheXBhbC5jb20wHhcNMDQwMjEzMTAxMzE1WhcNMzUwMjEzMTAxMzE1WjCBjjELMAkGA1UEBhMCVVMxCzAJBgNVBAgTAkNBMRYwFAYDVQQHEw1Nb3VudGFpbiBWaWV3MRQwEgYDVQQKEwtQYXlQYWwgSW5jLjETMBEGA1UECxQKbGl2ZV9jZXJ0czERMA8GA1UEAxQIbGl2ZV9hcGkxHDAaBgkqhkiG9w0BCQEWDXJlQHBheXBhbC5jb20wgZ8wDQYJKoZIhvcNAQEBBQADgY0AMIGJAoGBAMFHTt38RMxLXJyO2SmS+Ndl72T7oKJ4u4uw+6awntALWh03PewmIJuzbALScsTS4sZoS1fKciBGoh11gIfHzylvkdNe/hJl66/RGqrj5rFb08sAABNTzDTiqqNpJeBsYs/c2aiGozptX2RlnBktH+SUNpAajW724Nv2Wvhif6sFAgMBAAGjge4wgeswHQYDVR0OBBYEFJaffLvGbxe9WT9S1wob7BDWZJRrMIG7BgNVHSMEgbMwgbCAFJaffLvGbxe9WT9S1wob7BDWZJRroYGUpIGRMIGOMQswCQYDVQQGEwJVUzELMAkGA1UECBMCQ0ExFjAUBgNVBAcTDU1vdW50YWluIFZpZXcxFDASBgNVBAoTC1BheVBhbCBJbmMuMRMwEQYDVQQLFApsaXZlX2NlcnRzMREwDwYDVQQDFAhsaXZlX2FwaTEcMBoGCSqGSIb3DQEJARYNcmVAcGF5cGFsLmNvbYIBADAMBgNVHRMEBTADAQH/MA0GCSqGSIb3DQEBBQUAA4GBAIFfOlaagFrl71+jq6OKidbWFSE+Q4FqROvdgIONth+8kSK//Y/4ihuE4Ymvzn5ceE3S/iBSQQMjyvb+s2TWbQYDwcp129OPIbD9epdr4tJOUNiSojw7BHwYRiPh58S1xGlFgHFXwrEBb3dgNbMUa+u4qectsMAXpVHnD9wIyfmHMYIBmjCCAZYCAQEwgZQwgY4xCzAJBgNVBAYTAlVTMQswCQYDVQQIEwJDQTEWMBQGA1UEBxMNTW91bnRhaW4gVmlldzEUMBIGA1UEChMLUGF5UGFsIEluYy4xEzARBgNVBAsUCmxpdmVfY2VydHMxETAPBgNVBAMUCGxpdmVfYXBpMRwwGgYJKoZIhvcNAQkBFg1yZUBwYXlwYWwuY29tAgEAMAkGBSsOAwIaBQCgXTAYBgkqhkiG9w0BCQMxCwYJKoZIhvcNAQcBMBwGCSqGSIb3DQEJBTEPFw0xMTA5MTExOTQ2MjhaMCMGCSqGSIb3DQEJBDEWBBS5QW1Dd4P2UA5zfxqU0PGqeLvb3zANBgkqhkiG9w0BAQEFAASBgAUkdC6mnhFd/Qh/x1YDpJ3vKM3BXlvavfKmm95+Ii6+1JMk0akwJrfhFGg2+xW7PjfhlWbltXxmrb4gzBGThfvGR+1zibUjS6WJ5fqC1IcE9fpkJ6nY7szZGfsI+MDlkAAeSIkbPWIsIHDMNK2E6boQte2nPA8mRXCSoDQXIOmu-----END PKCS7-----
+">
+                                    <font style="color:white">
+                                        OOTP 17 Online Utilities - Version 9.0.1&nbsp;&nbsp;&nbsp;</font><a style='color:CC2222' onmouseover='this.style.color="#EE4444"' onmouseout='this.style.color="#CC2222"' href="javascript: void(0);" onclick="document.donate.submit();return false;"><u>Donate!</u></a></td>
+                            </tr>
+                        </table>
+                    </form>
+                </div>
+            </td>
+        </tr>
+    </table>
+</body>
+
+</html>

@@ -58,6 +58,7 @@ def get_on_clock_team(draftHtml):
 
 def get_previous_pick(draftHtml):
     previousParent = draftHtml.find('td', string=re.compile("Pick due")).parent
+    print(previousParent)
     prev_sib = ""
     th = previousParent.previous_sibling.previous_sibling.contents[0].text
     if th == '#':
@@ -69,6 +70,22 @@ def get_previous_pick(draftHtml):
     previousTeamIcon = get_team_icon(previousTeam.split("(")[0])
     previousPlayer = prev_sib.contents[2].text
     return previousTeamIcon + " " + previousPick + " : " + previousTeam +  " : " + previousPlayer
+
+def get_previous_pick_new(draftHtml):
+    previous_parent = draftHtml.find('td', string=re.compile("Pick due")).parent
+
+    if type(previous_parent) is bs4.element.NavigableString:
+    # means first pick in next round
+        print("is Navi")
+        prev_sib = previous_parent.previous_sibling.previous_sibling.previous_sibling
+    else:
+        prev_sib = previous_parent.previous_sibling.previous_sibling
+
+    previous_pick = prev_sib.contents[0].text
+    previous_team = prev_sib.contents[1].text
+    previous_team_icon = get_team_icon(previous_team.split("(")[0])
+    previous_player = prev_sib.contents[2].text
+    return previous_team_icon + " " + previous_pick + " : " + previous_team + " : " + previous_player
 
 def get_time_from_file():
     readtimefile = open('time.txt', 'r+')
@@ -109,7 +126,7 @@ if __name__ == "__main__":
             timeFile.close()
 
             onClockResult = get_on_clock(noStarchSoup)
-            previousPickResult = get_previous_pick(noStarchSoup)
+            previousPickResult = get_previous_pick_new(noStarchSoup)
 
             teamOnClock = get_on_clock_team(noStarchSoup)
 
@@ -118,10 +135,10 @@ if __name__ == "__main__":
 
             previousPickPayload = "LAST PICK :"  + previousPickResult
             onClockPayLoad = "ON CLOCK: " + get_team_icon(teamOnClock) + onClockResult
-            #send_message("test-thegubabot", previousPickPayload)
-            #send_message("test-thegubabot", onClockPayLoad)
-            send_message("general", previousPickPayload)
-            send_message("general", onClockPayLoad)
+            send_message("test-thegubabot", previousPickPayload)
+            send_message("test-thegubabot", onClockPayLoad)
+            #send_message("general", previousPickPayload)
+            #send_message("general", onClockPayLoad)
         time.sleep(WAIT_DELAY)
         timeFile.close()
-        test=False
+        test = False

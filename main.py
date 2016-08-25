@@ -4,6 +4,7 @@ config = configparser.ConfigParser()
 config.read('config.properties')
 
 SLACK_TOKEN = config.get('Slack', 'SlackToken')
+WAIT_DELAY = config.getint('DEFAULT', 'WaitDelay')
 
 def get_team_icon(teamName):
     teams = {
@@ -85,14 +86,13 @@ def send_message(channel, message):
                        ae_user='false', username='gubadraftbot', icon_emoji=':baseball:'))
 
 if __name__ == "__main__":
-    WAIT_DELAY = 30
     test = True
     while True:
         print("trace: trying again")
         res = requests.get('http://www.thefibb.net/cgi-bin/ootpou.pl?page=draftPicks')
         res.raise_for_status()
         noStarchSoup = bs4.BeautifulSoup(res.text, 'html.parser')
-        timeDraft = get_pick_time(noStarchSoup);
+        timeDraft = get_pick_time(noStarchSoup)
         timeInfo = get_time_from_file()
         set_last_pick_num(noStarchSoup)
 

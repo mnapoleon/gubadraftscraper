@@ -57,11 +57,17 @@ def get_on_clock_team(draftHtml):
     return teamOnClockText[0]
 
 def get_previous_pick(draftHtml):
-    previousParent = draftHtml.find('td', string=re.compile("Pick due")).parent.previous_sibling
-    previousPick = previousParent.contents[0].text
-    previousTeam = previousParent.contents[1].text
+    previousParent = draftHtml.find('td', string=re.compile("Pick due")).parent
+    prev_sib = ""
+    th = previousParent.previous_sibling.previous_sibling.contents[0].text
+    if th == '#':
+        prev_sib = previousParent.previous_sibling.previous_sibling.previous_sibling
+    else :
+        prev_sib = previousParent.previous_sibling
+    previousPick = prev_sib.contents[0].text
+    previousTeam = prev_sib.contents[1].text
     previousTeamIcon = get_team_icon(previousTeam.split("(")[0])
-    previousPlayer = previousParent.contents[2].text
+    previousPlayer = prev_sib.contents[2].text
     return previousTeamIcon + " " + previousPick + " : " + previousTeam +  " : " + previousPlayer
 
 def get_time_from_file():
@@ -75,10 +81,11 @@ def get_time_from_file():
 
 def set_last_pick_num(draftHtml):
     previousParent = draftHtml.find('td', string=re.compile("Pick due")).parent.previous_sibling
-    picknum = previousParent.contents[0].text
-    pickNumFile = open('picknum.txt', 'r+')
-    pickNumFile.write(picknum)
-    pickNumFile.close()
+    if previousParent:
+        picknum = previousParent.contents[0].text
+        pickNumFile = open('picknum.txt', 'r+')
+        pickNumFile.write(picknum)
+        pickNumFile.close()
 
 def send_message(channel, message):
     sc = slackclient.SlackClient(SLACK_TOKEN)
@@ -94,7 +101,7 @@ if __name__ == "__main__":
         noStarchSoup = bs4.BeautifulSoup(res.text, 'html.parser')
         timeDraft = get_pick_time(noStarchSoup)
         timeInfo = get_time_from_file()
-        set_last_pick_num(noStarchSoup)
+        #set_last_pick_num(noStarchSoup)
 
         timeFile = open('time.txt', 'r+')
         if timeInfo.strip() != timeDraft.strip():
@@ -111,10 +118,10 @@ if __name__ == "__main__":
 
             previousPickPayload = "LAST PICK :"  + previousPickResult
             onClockPayLoad = "ON CLOCK: " + get_team_icon(teamOnClock) + onClockResult
-            send_message("test-thegubabot", previousPickPayload)
-            send_message("test-thegubabot", onClockPayLoad)
-            #send_message("general", previousPickPayload)
-            #send_message("general", onClockPayLoad)
+            #send_message("test-thegubabot", previousPickPayload)
+            #send_message("test-thegubabot", onClockPayLoad)
+            send_message("general", previousPickPayload)
+            send_message("general", onClockPayLoad)
         time.sleep(WAIT_DELAY)
         timeFile.close()
         test=False
